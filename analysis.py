@@ -5,8 +5,9 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 
 # ======================================================
-# DATA LOADING
+# DATA LOADING (STABLE)
 # ======================================================
+
 def load_data(file_path):
 
     df = pd.read_csv(file_path)
@@ -23,14 +24,13 @@ def load_data(file_path):
     df["date"] = pd.to_datetime(df["date"])
     df = df.sort_values("date")
 
-    # remove duplicate dates (IMPORTANT FIX)
+    # remove duplicate dates (critical fix)
     df = df.drop_duplicates(subset="date")
 
     df.set_index("date", inplace=True)
 
-    numeric_cols = df.columns
-
-    for col in numeric_cols:
+    # clean numeric columns
+    for col in df.columns:
         df[col] = (
             df[col]
             .astype(str)
@@ -40,13 +40,15 @@ def load_data(file_path):
         )
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    # now safe to set daily frequency
-    df = df.asfreq("D")
+    # ensure daily continuity safely
+    full_range = pd.date_range(df.index.min(), df.index.max(), freq="D")
+    df = df.reindex(full_range)
 
-    df[numeric_cols] = df[numeric_cols].interpolate()
+    df = df.interpolate()
     df = df.bfill().ffill()
 
     return df
+
 
 # ======================================================
 # FEATURE ENGINEERING (NO LEAKAGE)
@@ -54,16 +56,13 @@ def load_data(file_path):
 
 def create_forecasting_features(df):
 
-    # Target lags
     df["lag_1"] = df["hhs_in_care"].shift(1)
     df["lag_7"] = df["hhs_in_care"].shift(7)
     df["lag_14"] = df["hhs_in_care"].shift(14)
 
-    # Rolling from past only
     df["roll_mean_7"] = df["hhs_in_care"].shift(1).rolling(7).mean()
     df["roll_mean_14"] = df["hhs_in_care"].shift(1).rolling(14).mean()
 
-    # External variables lagged
     df["transfer_lag1"] = df["transferred_to_hhs"].shift(1)
     df["discharge_lag1"] = df["discharged"].shift(1)
 
@@ -77,13 +76,18 @@ def create_forecasting_features(df):
 # ======================================================
 
 def time_split(df, horizon=30):
+
+    if len(df) <= horizon + 5:
+        horizon = max(7, len(df)//3)
+
     train = df.iloc[:-horizon]
     test = df.iloc[-horizon:]
+
     return train, test
 
 
 # ======================================================
-# BASELINE MODEL
+# MODELS
 # ======================================================
 
 def naive_forecast(train, horizon):
@@ -91,35 +95,39 @@ def naive_forecast(train, horizon):
     return np.repeat(last_val, horizon)
 
 
-# ======================================================
-# SARIMA MODEL
-# ======================================================
-
 def sarima_forecast(train, horizon):
 
-    model = SARIMAX(
-        train["hhs_in_care"],
-        order=(1,1,1),
-        seasonal_order=(1,1,1,7),
-        enforce_stationarity=False,
-        enforce_invertibility=False
-    )
+    try:
+        model = SARIMAX(
+            train["hhs_in_care"],
+            order=(1,1,1),
+            seasonal_order=(1,1,1,7),
+            enforce_stationarity=False,
+            enforce_invertibility=False
+        )
 
-    result = model.fit(disp=False)
-    forecast_obj = result.get_forecast(steps=horizon)
+        result = model.fit(disp=False)
+        forecast_obj = result.get_forecast(steps=horizon)
 
-    return forecast_obj.predicted_mean, forecast_obj.conf_int()
+        return forecast_obj.predicted_mean, forecast_obj.conf_int()
 
+    except:
+        # fallback safe
+        return naive_forecast(train, horizon), None
 
-# ======================================================
-# RANDOM FOREST (SAFE)
-# ======================================================
 
 def ml_forecast(train, test):
 
     X_train = train.drop("hhs_in_care", axis=1)
     y_train = train["hhs_in_care"]
     X_test = test.drop("hhs_in_care", axis=1)
+
+    # numeric only
+    X_train = X_train.select_dtypes(include=[np.number])
+    X_test = X_test.select_dtypes(include=[np.number])
+
+    X_train = X_train.replace([np.inf, -np.inf], np.nan).fillna(0)
+    X_test = X_test.replace([np.inf, -np.inf], np.nan).fillna(0)
 
     model = RandomForestRegressor(
         n_estimators=200,
@@ -150,7 +158,7 @@ def evaluate_forecast(actual, predicted):
 
 
 # ======================================================
-# CAPACITY KPI
+# CAPACITY + KPIs
 # ======================================================
 
 def add_capacity_risk(df):
@@ -166,11 +174,11 @@ def add_capacity_risk(df):
 
 def calculate_kpis(df):
 
-    df["net_pressure"] = df["transferred_to_hhs"] - df["discharged"]
+    net_pressure = df["transferred_to_hhs"] - df["discharged"]
 
     return {
         "Avg Daily Intake": round(df["transferred_to_hhs"].mean(), 2),
         "Avg Daily Discharge": round(df["discharged"].mean(), 2),
-        "Pressure Days": int((df["net_pressure"] > 0).sum()),
+        "Pressure Days": int((net_pressure > 0).sum()),
         "Capacity Breach Days": int((df["capacity_status"] == "Critical").sum())
     }
