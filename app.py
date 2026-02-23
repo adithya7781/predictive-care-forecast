@@ -64,20 +64,6 @@ elif model_choice == "Random Forest":
     preds = ml_forecast(train, test)
     conf = None
 
-    # Feature importance check (ONLY for RF)
-    from sklearn.ensemble import RandomForestRegressor
-    X_train = train.drop("hhs_in_care", axis=1).select_dtypes(include="number")
-    y_train = train["hhs_in_care"]
-
-    model = RandomForestRegressor(n_estimators=200, random_state=42)
-    model.fit(X_train, y_train)
-
-    importance = pd.Series(model.feature_importances_, index=X_train.columns)\
-        .sort_values(ascending=False)
-
-    st.subheader("Feature Importance")
-    st.dataframe(importance)
-
 else:
     preds = naive_forecast(train, horizon)
     conf = None
