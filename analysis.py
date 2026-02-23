@@ -5,17 +5,13 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 
 # ======================================================
-# DATA LOADING & VALIDATION
+# DATA LOADING & CLEANING
 # ======================================================
 
 def load_data(file_path):
-    """
-    Load UAC dataset and perform basic validation
-    """
 
     df = pd.read_csv(file_path)
 
-    # Rename columns cleanly
     df.columns = [
         "date",
         "cbp_apprehended",
@@ -25,7 +21,6 @@ def load_data(file_path):
         "discharged"
     ]
 
-    # Convert types
     df["date"] = pd.to_datetime(df["date"])
     df = df.sort_values("date")
     df.set_index("date", inplace=True)
@@ -38,78 +33,73 @@ def load_data(file_path):
         "discharged"
     ]
 
+    # clean numeric columns
     for col in numeric_cols:
         df[col] = (
             df[col]
             .astype(str)
-            .str.replace(",", "", regex=False)   # remove commas
-            .str.replace("*", "", regex=False)   # remove *
+            .str.replace(",", "", regex=False)
+            .str.replace("*", "", regex=False)
             .str.strip()
         )
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    # remove duplicates
     df = df.drop_duplicates()
 
-    # ensure daily continuity
+    # ensure daily
     df = df.asfreq("D")
 
     # interpolate numeric only
     df[numeric_cols] = df[numeric_cols].interpolate(method="linear")
 
+    # fill any remaining
+    df[numeric_cols] = df[numeric_cols].fillna(method="bfill").fillna(method="ffill")
+
     return df
 
 
 # ======================================================
-# TIME SERIES DECOMPOSITION FEATURES
+# TIME FEATURES
 # ======================================================
 
 def add_time_features(df):
-    """
-    Adds calendar-based predictive signals
-    """
-
     df["day_of_week"] = df.index.dayofweek
     df["month"] = df.index.month
-    df["week"] = df.index.isocalendar().week
-
+    df["week"] = df.index.isocalendar().week.astype(int)
     return df
 
 
 # ======================================================
-# FEATURE ENGINEERING FOR FORECASTING
+# FEATURE ENGINEERING
 # ======================================================
 
 def create_forecasting_features(df):
-    """
-    Creates lag, rolling, and pressure indicators
-    """
 
-    # Lag features
     df["lag_1"] = df["hhs_in_care"].shift(1)
     df["lag_7"] = df["hhs_in_care"].shift(7)
     df["lag_14"] = df["hhs_in_care"].shift(14)
 
-    # Rolling stats
     df["roll_mean_7"] = df["hhs_in_care"].rolling(7).mean()
     df["roll_mean_14"] = df["hhs_in_care"].rolling(14).mean()
     df["roll_std_7"] = df["hhs_in_care"].rolling(7).std()
 
-    # Flow pressure
     df["net_pressure"] = df["transferred_to_hhs"] - df["discharged"]
 
-    df.dropna(inplace=True)
+    df = df.replace([np.inf, -np.inf], np.nan)
+    df = df.dropna()
+
     return df
 
 
 # ======================================================
-# TRAIN TEST SPLIT (TIME BASED)
+# TRAIN TEST SPLIT
 # ======================================================
 
 def time_split(df, horizon=30):
-    """
-    Strict time-based split
-    """
+
+    if len(df) <= horizon + 5:
+        horizon = max(7, len(df)//3)
+
     train = df.iloc[:-horizon]
     test = df.iloc[-horizon:]
     return train, test
@@ -120,63 +110,64 @@ def time_split(df, horizon=30):
 # ======================================================
 
 def naive_forecast(train, horizon):
-    """
-    Last-value persistence model
-    """
     last_val = train["hhs_in_care"].iloc[-1]
     return np.repeat(last_val, horizon)
 
 
 def moving_average_forecast(train, horizon, window=7):
-    """
-    Moving average baseline
-    """
     avg = train["hhs_in_care"].rolling(window).mean().iloc[-1]
     return np.repeat(avg, horizon)
 
 
 # ======================================================
-# ARIMA / SARIMA FORECAST
+# SARIMA MODEL
 # ======================================================
 
 def sarima_forecast(train, horizon):
-    """
-    Statistical forecasting with confidence intervals
-    """
 
-    model = SARIMAX(
-        train["hhs_in_care"],
-        order=(1,1,1),
-        seasonal_order=(1,1,1,7)
-    )
+    try:
+        model = SARIMAX(
+            train["hhs_in_care"],
+            order=(1,1,1),
+            seasonal_order=(1,1,1,7),
+            enforce_stationarity=False,
+            enforce_invertibility=False
+        )
 
-    result = model.fit(disp=False)
+        result = model.fit(disp=False)
 
-    forecast_obj = result.get_forecast(steps=horizon)
-    forecast = forecast_obj.predicted_mean
-    conf_int = forecast_obj.conf_int()
+        forecast_obj = result.get_forecast(steps=horizon)
+        forecast = forecast_obj.predicted_mean
+        conf_int = forecast_obj.conf_int()
 
-    return forecast, conf_int
+        return forecast, conf_int
+
+    except:
+        # fallback
+        forecast = naive_forecast(train, horizon)
+        return forecast, None
 
 
 # ======================================================
-# MACHINE LEARNING FORECAST MODELS
+# ML MODELS
 # ======================================================
 
 def ml_forecast(train, test, model_type="rf"):
 
-    # drop target
     X_train = train.drop("hhs_in_care", axis=1)
     y_train = train["hhs_in_care"]
-
     X_test = test.drop("hhs_in_care", axis=1)
 
-    # REMOVE NON NUMERIC COLUMNS
+    # keep numeric only
     X_train = X_train.select_dtypes(include=[np.number])
     X_test = X_test.select_dtypes(include=[np.number])
 
+    # remove any nan/inf
+    X_train = X_train.replace([np.inf, -np.inf], np.nan).fillna(0)
+    X_test = X_test.replace([np.inf, -np.inf], np.nan).fillna(0)
+
     if model_type == "rf":
-        model = RandomForestRegressor(n_estimators=300, random_state=42)
+        model = RandomForestRegressor(n_estimators=200, random_state=42)
     else:
         model = GradientBoostingRegressor(random_state=42)
 
@@ -185,14 +176,12 @@ def ml_forecast(train, test, model_type="rf"):
 
     return preds
 
+
 # ======================================================
-# MODEL EVALUATION METRICS
+# METRICS
 # ======================================================
 
 def evaluate_forecast(actual, predicted):
-    """
-    MAE, RMSE, MAPE evaluation
-    """
 
     mae = mean_absolute_error(actual, predicted)
     rmse = np.sqrt(mean_squared_error(actual, predicted))
@@ -206,17 +195,13 @@ def evaluate_forecast(actual, predicted):
 
 
 # ======================================================
-# CAPACITY RISK & EARLY WARNING KPIs
+# CAPACITY RISK
 # ======================================================
 
 def add_capacity_risk(df):
-    """
-    Early warning indicator for overcrowding risk
-    """
 
     df["capacity_status"] = np.where(
-        df["hhs_in_care"] > 15000,
-        "Critical",
+        df["hhs_in_care"] > 15000, "Critical",
         np.where(df["hhs_in_care"] > 12000, "Warning", "Normal")
     )
 
@@ -224,25 +209,20 @@ def add_capacity_risk(df):
 
 
 # ======================================================
-# FORECAST KPI CALCULATIONS
+# KPI CALCULATION
 # ======================================================
 
 def calculate_kpis(df):
-    """
-    Computes decision-making KPIs
-    """
 
     avg_intake = df["transferred_to_hhs"].mean()
     avg_discharge = df["discharged"].mean()
 
     pressure_days = (df["net_pressure"] > 0).sum()
-    capacity_breach_days = (df["capacity_status"] == "Critical").sum()
+    breach_days = (df["capacity_status"] == "Critical").sum()
 
-    kpis = {
+    return {
         "Avg Daily Intake": round(avg_intake, 2),
         "Avg Daily Discharge": round(avg_discharge, 2),
         "Pressure Days": int(pressure_days),
-        "Capacity Breach Days": int(capacity_breach_days)
+        "Capacity Breach Days": int(breach_days)
     }
-
-    return kpis
