@@ -164,14 +164,16 @@ def sarima_forecast(train, horizon):
 # ======================================================
 
 def ml_forecast(train, test, model_type="rf"):
-    """
-    Random Forest / Gradient Boosting forecasting
-    """
 
+    # drop target
     X_train = train.drop("hhs_in_care", axis=1)
     y_train = train["hhs_in_care"]
 
     X_test = test.drop("hhs_in_care", axis=1)
+
+    # REMOVE NON NUMERIC COLUMNS
+    X_train = X_train.select_dtypes(include=[np.number])
+    X_test = X_test.select_dtypes(include=[np.number])
 
     if model_type == "rf":
         model = RandomForestRegressor(n_estimators=300, random_state=42)
@@ -182,7 +184,6 @@ def ml_forecast(train, test, model_type="rf"):
     preds = model.predict(X_test)
 
     return preds
-
 
 # ======================================================
 # MODEL EVALUATION METRICS
