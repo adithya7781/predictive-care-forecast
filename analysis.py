@@ -7,7 +7,6 @@ from statsmodels.tsa.statespace.sarimax import SARIMAX
 # ======================================================
 # DATA LOADING
 # ======================================================
-
 def load_data(file_path):
 
     df = pd.read_csv(file_path)
@@ -22,7 +21,12 @@ def load_data(file_path):
     ]
 
     df["date"] = pd.to_datetime(df["date"])
-    df = df.sort_values("date").set_index("date")
+    df = df.sort_values("date")
+
+    # remove duplicate dates (IMPORTANT FIX)
+    df = df.drop_duplicates(subset="date")
+
+    df.set_index("date", inplace=True)
 
     numeric_cols = df.columns
 
@@ -36,12 +40,13 @@ def load_data(file_path):
         )
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
+    # now safe to set daily frequency
     df = df.asfreq("D")
+
     df[numeric_cols] = df[numeric_cols].interpolate()
-    df = df.fillna(method="bfill").fillna(method="ffill")
+    df = df.bfill().ffill()
 
     return df
-
 
 # ======================================================
 # FEATURE ENGINEERING (NO LEAKAGE)
