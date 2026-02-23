@@ -6,34 +6,6 @@ import plotly.graph_objects as go
 from analysis import *
 
 # ======================================================
-# UI THEME STYLE
-# ======================================================
-
-st.markdown("""
-<style>
-div[data-testid="metric-container"] {
-    background-color: #161B22;
-    border: 1px solid #30363D;
-    padding: 18px;
-    border-radius: 12px;
-    text-align: center;
-    box-shadow: 0px 0px 8px rgba(0,0,0,0.3);
-}
-
-div[data-testid="metric-container"] > label {
-    font-size: 14px;
-    color: #C9D1D9;
-}
-
-div[data-testid="metric-container"] > div {
-    font-size: 26px;
-    font-weight: bold;
-    color: #58A6FF;
-}
-</style>
-""", unsafe_allow_html=True)
-
-# ======================================================
 # PAGE CONFIG
 # ======================================================
 
@@ -46,7 +18,7 @@ st.title("Predictive Forecasting of Care Load & Placement Demand")
 st.caption("Department of Health & Human Services — Forecast Intelligence Dashboard")
 
 # ======================================================
-# DATA PIPELINE (CACHED)
+# LOAD PIPELINE
 # ======================================================
 
 @st.cache_data
@@ -61,7 +33,7 @@ with st.spinner("Loading forecasting intelligence system..."):
     data = load_full_pipeline()
 
 # ======================================================
-# SIDEBAR CONTROLS
+# SIDEBAR
 # ======================================================
 
 st.sidebar.header("Forecast Controls")
@@ -87,11 +59,16 @@ filtered = data[
     (data.index <= pd.to_datetime(date_range[1]))
 ]
 
+# avoid crash if small data
+if len(filtered) < horizon + 5:
+    st.error("Not enough data for selected horizon. Reduce horizon.")
+    st.stop()
+
 train, test = time_split(filtered, horizon)
 actual = test["hhs_in_care"]
 
 # ======================================================
-# MODEL EXECUTION
+# MODEL RUN
 # ======================================================
 
 if model_choice == "Naive":
@@ -119,46 +96,21 @@ metrics_result = evaluate_forecast(actual, preds)
 # KPI DISPLAY
 # ======================================================
 
-k1, k2, k3 = st.columns(3)
-k1.metric("MAE", metrics_result["MAE"])
-k2.metric("RMSE", metrics_result["RMSE"])
-k3.metric("MAPE (%)", metrics_result["MAPE (%)"])
+c1, c2, c3 = st.columns(3)
+c1.metric("MAE", metrics_result["MAE"])
+c2.metric("RMSE", metrics_result["RMSE"])
+c3.metric("MAPE (%)", metrics_result["MAPE (%)"])
 
 decision_kpis = calculate_kpis(filtered)
 
-k4, k5, k6, k7 = st.columns(4)
-k4.metric("Avg Daily Intake", decision_kpis["Avg Daily Intake"])
-k5.metric("Avg Daily Discharge", decision_kpis["Avg Daily Discharge"])
-k6.metric("Pressure Days", decision_kpis["Pressure Days"])
-k7.metric("Capacity Breach Days", decision_kpis["Capacity Breach Days"])
+c4, c5, c6, c7 = st.columns(4)
+c4.metric("Avg Daily Intake", decision_kpis["Avg Daily Intake"])
+c5.metric("Avg Daily Discharge", decision_kpis["Avg Daily Discharge"])
+c6.metric("Pressure Days", decision_kpis["Pressure Days"])
+c7.metric("Capacity Breach Days", decision_kpis["Capacity Breach Days"])
 
 # ======================================================
-# EXECUTIVE SUMMARY
-# ======================================================
-
-st.markdown("## Executive Intelligence Summary")
-
-st.info("""
-### Healthcare Capacity Intelligence
-
-• Forecasting models estimate future HHS care load and discharge demand.
-
-• Net pressure indicators reveal imbalance between intake and placements.
-
-• Capacity breach warnings allow proactive staffing and shelter planning.
-
-• Early-warning signals help prevent overcrowding and burnout.
-
-### Strategic Recommendations
-
-✔ Scale shelters and staff before projected surge  
-✔ Increase discharge placement processing  
-✔ Monitor net pressure daily  
-✔ Use predictive dashboard for planning decisions  
-""")
-
-# ======================================================
-# FORECAST VISUALIZATION
+# FORECAST CHART
 # ======================================================
 
 st.subheader("Future Care Load Forecast")
@@ -173,21 +125,18 @@ fig.add_trace(go.Scatter(x=actual.index, y=preds,
 if conf is not None:
     fig.add_trace(go.Scatter(
         x=actual.index,
-        y=conf.iloc[:,0],
-        fill=None,
-        mode='lines',
-        line_color='lightgrey',
+        y=conf.iloc[:, 0],
+        line=dict(width=0),
         showlegend=False))
 
     fig.add_trace(go.Scatter(
         x=actual.index,
-        y=conf.iloc[:,1],
+        y=conf.iloc[:, 1],
         fill='tonexty',
-        mode='lines',
-        line_color='lightgrey',
-        name='Confidence Interval'))
+        name="Confidence Interval",
+        opacity=0.3))
 
-st.plotly_chart(fig, use_container_width=True)
+st.plotly_chart(fig, width="stretch")
 
 # ======================================================
 # INTAKE VS DISCHARGE
@@ -197,14 +146,14 @@ st.subheader("Intake vs Discharge Trend")
 
 flow_fig = px.line(
     filtered,
-    y=["transferred_to_hhs","discharged"],
+    y=["transferred_to_hhs", "discharged"],
     title="Daily Intake vs Discharge"
 )
 
-st.plotly_chart(flow_fig, use_container_width=True)
+st.plotly_chart(flow_fig, width="stretch")
 
 # ======================================================
-# NET PRESSURE ANALYSIS
+# NET PRESSURE
 # ======================================================
 
 st.subheader("Net Pressure Indicator")
@@ -215,10 +164,10 @@ pressure_chart = px.line(
     title="System Pressure (Transfers − Discharges)"
 )
 
-st.plotly_chart(pressure_chart, use_container_width=True)
+st.plotly_chart(pressure_chart, width="stretch")
 
 # ======================================================
-# CAPACITY RISK PANEL
+# CAPACITY RISK
 # ======================================================
 
 st.subheader("Capacity Risk Monitoring")
@@ -229,38 +178,48 @@ risk_chart = px.pie(
     title="Capacity Risk Distribution"
 )
 
-st.plotly_chart(risk_chart, use_container_width=True)
+st.plotly_chart(risk_chart, width="stretch")
 
-risk_table = filtered[["hhs_in_care","capacity_status"]].tail(15)
-st.dataframe(risk_table, use_container_width=True)
+st.dataframe(
+    filtered[["hhs_in_care", "capacity_status"]].tail(15),
+    width="stretch"
+)
 
 # ======================================================
-# MODEL COMPARISON (ADVANCED)
+# MODEL COMPARISON (FIXED)
 # ======================================================
 
 st.subheader("Model Comparison")
 
 model_results = []
 
-for m in ["Naive","Moving Average","SARIMA","Random Forest","Gradient Boosting"]:
+models = ["Naive", "Moving Average", "SARIMA", "Random Forest", "Gradient Boosting"]
 
-    if m == "Naive":
-        p = naive_forecast(train, horizon)
-    elif m == "Moving Average":
-        p = moving_average_forecast(train, horizon)
-    elif m == "SARIMA":
-        p,_ = sarima_forecast(train, horizon)
-    elif m == "Random Forest":
-        p = ml_forecast(train, test, "rf")
-    else:
-        p = ml_forecast(train, test, "gb")
+for m in models:
+    try:
+        if m == "Naive":
+            p = naive_forecast(train, horizon)
 
-    r = evaluate_forecast(actual, p)
-    model_results.append([m, r["MAE"], r["RMSE"], r["MAPE (%)"]])
+        elif m == "Moving Average":
+            p = moving_average_forecast(train, horizon)
+
+        elif m == "SARIMA":
+            p, _ = sarima_forecast(train, horizon)
+
+        elif m == "Random Forest":
+            p = ml_forecast(train, test, "rf")
+
+        else:
+            p = ml_forecast(train, test, "gb")
+
+        r = evaluate_forecast(actual, p)
+        model_results.append([m, r["MAE"], r["RMSE"], r["MAPE (%)"]])
+
+    except Exception as e:
+        model_results.append([m, "Error", "Error", "Error"])
 
 comparison_df = pd.DataFrame(
     model_results,
-    columns=["Model","MAE","RMSE","MAPE"]
+    columns=["Model", "MAE", "RMSE", "MAPE"]
 )
-
-st.dataframe(comparison_df, use_container_width=True)
+st.dataframe(comparison_df, width="stretch"
