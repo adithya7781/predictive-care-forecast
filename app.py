@@ -222,4 +222,4 @@ comparison_df = pd.DataFrame(
     model_results,
     columns=["Model", "MAE", "RMSE", "MAPE"]
 )
-st.dataframe(comparison_df, width="stretch"
+st.dataframe(comparison_df, width="stretch")
