@@ -50,9 +50,9 @@ def load_data(file_path):
 def create_forecasting_features(df):
 
     # lag features
-    df["lag_1"] = df["hhs_in_care"].shift(1)
-    df["lag_7"] = df["hhs_in_care"].shift(7)
-    df["lag_14"] = df["hhs_in_care"].shift(14)
+    #df["lag_1"] = df["hhs_in_care"].shift(1)
+    #df["lag_7"] = df["hhs_in_care"].shift(7)
+    #df["lag_14"] = df["hhs_in_care"].shift(14)
 
     # rolling
     df["roll_mean_7"] = df["hhs_in_care"].rolling(7).mean()
