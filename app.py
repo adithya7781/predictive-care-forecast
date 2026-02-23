@@ -46,6 +46,15 @@ filtered = data[
     (data.index<=pd.to_datetime(date_range[1]))
 ]
 
+# Minimum data requirement check
+min_required = horizon + 30   # buffer for lag features
+
+if len(filtered) < min_required:
+    st.warning("Selected date range too small for forecasting. Select larger range.")
+    st.stop()
+
+st.write(filtered.tail())
+
 train,test = time_split(filtered,horizon)
 actual = test["hhs_in_care"]
 
