@@ -4,10 +4,9 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 
-# ======================================================
-# DATA LOADING (STABLE)
-# ======================================================
-
+# =========================
+# LOAD DATA
+# =========================
 def load_data(file_path):
 
     df = pd.read_csv(file_path)
@@ -22,14 +21,10 @@ def load_data(file_path):
     ]
 
     df["date"] = pd.to_datetime(df["date"])
-    df = df.sort_values("date")
-
-    # remove duplicate dates (critical fix)
-    df = df.drop_duplicates(subset="date")
-
+    df = df.sort_values("date").drop_duplicates(subset="date")
     df.set_index("date", inplace=True)
 
-    # clean numeric columns
+    # clean numbers
     for col in df.columns:
         df[col] = (
             df[col]
@@ -40,20 +35,18 @@ def load_data(file_path):
         )
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    # ensure daily continuity safely
+    # continuous dates
     full_range = pd.date_range(df.index.min(), df.index.max(), freq="D")
     df = df.reindex(full_range)
 
-    df = df.interpolate()
-    df = df.bfill().ffill()
+    df = df.interpolate().bfill().ffill()
 
     return df
 
 
-# ======================================================
-# FEATURE ENGINEERING (NO LEAKAGE)
-# ======================================================
-
+# =========================
+# FEATURES
+# =========================
 def create_forecasting_features(df):
 
     df["lag_1"] = df["hhs_in_care"].shift(1)
@@ -66,33 +59,26 @@ def create_forecasting_features(df):
     df["transfer_lag1"] = df["transferred_to_hhs"].shift(1)
     df["discharge_lag1"] = df["discharged"].shift(1)
 
-    df = df.dropna()
+    df["net_pressure"] = df["transferred_to_hhs"] - df["discharged"]
 
+    df = df.dropna()
     return df
 
 
-# ======================================================
-# TRAIN TEST SPLIT
-# ======================================================
-
+# =========================
+# SPLIT
+# =========================
 def time_split(df, horizon=30):
-
-    if len(df) <= horizon + 5:
-        horizon = max(7, len(df)//3)
-
     train = df.iloc[:-horizon]
     test = df.iloc[-horizon:]
-
     return train, test
 
 
-# ======================================================
+# =========================
 # MODELS
-# ======================================================
-
+# =========================
 def naive_forecast(train, horizon):
-    last_val = train["hhs_in_care"].iloc[-1]
-    return np.repeat(last_val, horizon)
+    return np.repeat(train["hhs_in_care"].iloc[-1], horizon)
 
 
 def sarima_forecast(train, horizon):
@@ -106,13 +92,12 @@ def sarima_forecast(train, horizon):
             enforce_invertibility=False
         )
 
-        result = model.fit(disp=False)
-        forecast_obj = result.get_forecast(steps=horizon)
+        res = model.fit(disp=False)
+        fc = res.get_forecast(steps=horizon)
 
-        return forecast_obj.predicted_mean, forecast_obj.conf_int()
+        return fc.predicted_mean, fc.conf_int()
 
     except:
-        # fallback safe
         return naive_forecast(train, horizon), None
 
 
@@ -122,63 +107,48 @@ def ml_forecast(train, test):
     y_train = train["hhs_in_care"]
     X_test = test.drop("hhs_in_care", axis=1)
 
-    # numeric only
-    X_train = X_train.select_dtypes(include=[np.number])
-    X_test = X_test.select_dtypes(include=[np.number])
+    X_train = X_train.select_dtypes(include=[np.number]).fillna(0)
+    X_test = X_test.select_dtypes(include=[np.number]).fillna(0)
 
-    X_train = X_train.replace([np.inf, -np.inf], np.nan).fillna(0)
-    X_test = X_test.replace([np.inf, -np.inf], np.nan).fillna(0)
-
-    model = RandomForestRegressor(
-        n_estimators=200,
-        random_state=42
-    )
-
+    model = RandomForestRegressor(n_estimators=200, random_state=42)
     model.fit(X_train, y_train)
-    preds = model.predict(X_test)
 
-    return preds
+    return model.predict(X_test)
 
 
-# ======================================================
+# =========================
 # METRICS
-# ======================================================
+# =========================
+def evaluate_forecast(actual, pred):
 
-def evaluate_forecast(actual, predicted):
-
-    mae = mean_absolute_error(actual, predicted)
-    rmse = np.sqrt(mean_squared_error(actual, predicted))
-    mape = np.mean(np.abs((actual - predicted) / actual)) * 100
+    mae = mean_absolute_error(actual, pred)
+    rmse = np.sqrt(mean_squared_error(actual, pred))
+    mape = np.mean(np.abs((actual - pred) / actual)) * 100
 
     return {
-        "MAE": round(mae, 2),
-        "RMSE": round(rmse, 2),
-        "MAPE (%)": round(mape, 2)
+        "MAE": round(mae,2),
+        "RMSE": round(rmse,2),
+        "MAPE (%)": round(mape,2)
     }
 
 
-# ======================================================
-# CAPACITY + KPIs
-# ======================================================
-
+# =========================
+# CAPACITY + KPI
+# =========================
 def add_capacity_risk(df):
 
     df["capacity_status"] = np.where(
-        df["hhs_in_care"] > 15000,
-        "Critical",
-        np.where(df["hhs_in_care"] > 12000, "Warning", "Normal")
+        df["hhs_in_care"] > 15000,"Critical",
+        np.where(df["hhs_in_care"] > 12000,"Warning","Normal")
     )
-
     return df
 
 
 def calculate_kpis(df):
 
-    net_pressure = df["transferred_to_hhs"] - df["discharged"]
-
     return {
-        "Avg Daily Intake": round(df["transferred_to_hhs"].mean(), 2),
-        "Avg Daily Discharge": round(df["discharged"].mean(), 2),
-        "Pressure Days": int((net_pressure > 0).sum()),
-        "Capacity Breach Days": int((df["capacity_status"] == "Critical").sum())
+        "Avg Daily Intake": round(df["transferred_to_hhs"].mean(),2),
+        "Avg Daily Discharge": round(df["discharged"].mean(),2),
+        "Pressure Days": int((df["net_pressure"]>0).sum()),
+        "Capacity Breach Days": int((df["capacity_status"]=="Critical").sum())
     }
