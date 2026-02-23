@@ -25,17 +25,37 @@ def load_data(file_path):
         "discharged"
     ]
 
-    # Remove duplicates
-    df = df.drop_duplicates()
-
     # Convert types
     df["date"] = pd.to_datetime(df["date"])
     df = df.sort_values("date")
     df.set_index("date", inplace=True)
 
-    # Ensure daily continuity
+    numeric_cols = [
+        "cbp_apprehended",
+        "cbp_in_care",
+        "transferred_to_hhs",
+        "hhs_in_care",
+        "discharged"
+    ]
+
+    for col in numeric_cols:
+        df[col] = (
+            df[col]
+            .astype(str)
+            .str.replace(",", "", regex=False)   # remove commas
+            .str.replace("*", "", regex=False)   # remove *
+            .str.strip()
+        )
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    # remove duplicates
+    df = df.drop_duplicates()
+
+    # ensure daily continuity
     df = df.asfreq("D")
-    df.interpolate(method="linear", inplace=True)
+
+    # interpolate numeric only
+    df[numeric_cols] = df[numeric_cols].interpolate(method="linear")
 
     return df
 
