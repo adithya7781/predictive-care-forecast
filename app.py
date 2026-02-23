@@ -63,6 +63,8 @@ if model_choice=="SARIMA":
     preds,conf = sarima_forecast(train,horizon)
 elif model_choice=="Random Forest":
     preds = ml_forecast(train,test)
+    st.write(pd.Series(model.feature_importances_, index=X_train.columns)
+         .sort_values(ascending=False))
     conf=None
 else:
     preds = naive_forecast(train,horizon)
