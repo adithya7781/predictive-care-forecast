@@ -50,9 +50,9 @@ def load_data(file_path):
 def create_forecasting_features(df):
 
     # lag features
-    #df["lag_1"] = df["hhs_in_care"].shift(1)
-    #df["lag_7"] = df["hhs_in_care"].shift(7)
-    #df["lag_14"] = df["hhs_in_care"].shift(14)
+    df["lag_1"] = df["hhs_in_care"].shift(1)
+    df["lag_7"] = df["hhs_in_care"].shift(7)
+    df["lag_14"] = df["hhs_in_care"].shift(14)
 
     # rolling
     df["roll_mean_7"] = df["hhs_in_care"].rolling(7).mean()
@@ -112,6 +112,9 @@ def ml_forecast(train, test):
 
     X_train = X_train.select_dtypes(include=[np.number]).fillna(0)
     X_test = X_test.select_dtypes(include=[np.number]).fillna(0)
+
+    st.write(pd.Series(model.feature_importances_, index=X_train.columns)
+         .sort_values(ascending=False))
 
     model = RandomForestRegressor(n_estimators=200, random_state=42)
     model.fit(X_train, y_train)
