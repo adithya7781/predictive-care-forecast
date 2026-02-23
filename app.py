@@ -10,7 +10,7 @@ st.title("Predictive Forecasting of Care Load & Placement Demand")
 st.caption("Department of Health & Human Services — Forecast Intelligence Dashboard")
 
 # ======================================================
-# LOAD DATA
+# LOAD PIPELINE
 # ======================================================
 
 @st.cache_data
@@ -23,7 +23,7 @@ def load_pipeline():
 data = load_pipeline()
 
 # ======================================================
-# SIDEBAR
+# SIDEBAR CONTROLS
 # ======================================================
 
 st.sidebar.header("Forecast Controls")
@@ -35,15 +35,29 @@ model_choice = st.sidebar.selectbox(
     ["Naive", "SARIMA", "Random Forest"]
 )
 
+date_range = st.sidebar.date_input(
+    "Select Date Range",
+    [data.index.min(), data.index.max()]
+)
+
 # ======================================================
-# SPLIT
+# FILTER DATA
 # ======================================================
 
-train, test = time_split(data, horizon)
+filtered = data[
+    (data.index >= pd.to_datetime(date_range[0])) &
+    (data.index <= pd.to_datetime(date_range[1]))
+]
+
+if len(filtered) < horizon + 5:
+    st.error("Not enough data for selected horizon.")
+    st.stop()
+
+train, test = time_split(filtered, horizon)
 actual = test["hhs_in_care"]
 
 # ======================================================
-# MODEL
+# MODEL EXECUTION
 # ======================================================
 
 if model_choice == "Naive":
@@ -60,7 +74,7 @@ else:
 metrics = evaluate_forecast(actual, preds)
 
 # ======================================================
-# KPIs
+# KPI DISPLAY
 # ======================================================
 
 c1, c2, c3 = st.columns(3)
@@ -68,7 +82,7 @@ c1.metric("MAE", metrics["MAE"])
 c2.metric("RMSE", metrics["RMSE"])
 c3.metric("MAPE (%)", metrics["MAPE (%)"])
 
-kpis = calculate_kpis(data)
+kpis = calculate_kpis(filtered)
 
 c4, c5, c6, c7 = st.columns(4)
 c4.metric("Avg Daily Intake", kpis["Avg Daily Intake"])
@@ -83,8 +97,8 @@ c7.metric("Capacity Breach Days", kpis["Capacity Breach Days"])
 st.subheader("Forecast vs Actual")
 
 fig = go.Figure()
-fig.add_trace(go.Scatter(x=actual.index, y=actual, mode='lines', name="Actual"))
-fig.add_trace(go.Scatter(x=actual.index, y=preds, mode='lines', name="Forecast"))
+fig.add_trace(go.Scatter(x=actual.index, y=actual, mode="lines", name="Actual"))
+fig.add_trace(go.Scatter(x=actual.index, y=preds, mode="lines", name="Forecast"))
 
 if conf is not None:
     fig.add_trace(go.Scatter(
@@ -96,7 +110,7 @@ if conf is not None:
     fig.add_trace(go.Scatter(
         x=actual.index,
         y=conf.iloc[:, 1],
-        fill='tonexty',
+        fill="tonexty",
         opacity=0.3,
         name="Confidence Interval"
     ))
@@ -115,10 +129,8 @@ for m in ["Naive", "SARIMA", "Random Forest"]:
 
     if m == "Naive":
         p = naive_forecast(train, horizon)
-
     elif m == "SARIMA":
         p, _ = sarima_forecast(train, horizon)
-
     else:
         p = ml_forecast(train, test)
 
