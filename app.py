@@ -4,15 +4,14 @@ import plotly.express as px
 import plotly.graph_objects as go
 from analysis import *
 
-st.set_page_config(page_title="Care Load Forecasting Dashboard", layout="wide")
+st.set_page_config(page_title="Care Forecast Dashboard", layout="wide")
 
 st.title("Predictive Forecasting of Care Load & Placement Demand")
-st.caption("Department of Health & Human Services — Forecast Intelligence Dashboard")
+st.caption("HHS Forecast Intelligence Dashboard")
 
-# ======================================================
-# LOAD PIPELINE
-# ======================================================
-
+# =========================
+# LOAD
+# =========================
 @st.cache_data
 def load_pipeline():
     df = load_data("data/HHS_Unaccompanied_Alien_Children_Program.csv")
@@ -22,120 +21,122 @@ def load_pipeline():
 
 data = load_pipeline()
 
-# ======================================================
-# SIDEBAR CONTROLS
-# ======================================================
-
+# =========================
+# SIDEBAR
+# =========================
 st.sidebar.header("Forecast Controls")
 
-horizon = st.sidebar.slider("Forecast Horizon (Days)", 7, 60, 30)
+horizon = st.sidebar.slider("Forecast Horizon",7,60,30)
 
 model_choice = st.sidebar.selectbox(
-    "Select Forecast Model",
-    ["Naive", "SARIMA", "Random Forest"]
+    "Model",
+    ["SARIMA","Random Forest","Naive"]
 )
 
 date_range = st.sidebar.date_input(
-    "Select Date Range",
+    "Date Range",
     [data.index.min(), data.index.max()]
 )
 
-# ======================================================
-# FILTER DATA
-# ======================================================
-
+# =========================
+# FILTER
+# =========================
 filtered = data[
-    (data.index >= pd.to_datetime(date_range[0])) &
-    (data.index <= pd.to_datetime(date_range[1]))
+    (data.index>=pd.to_datetime(date_range[0])) &
+    (data.index<=pd.to_datetime(date_range[1]))
 ]
 
-if len(filtered) < horizon + 5:
-    st.error("Not enough data for selected horizon.")
-    st.stop()
-
-train, test = time_split(filtered, horizon)
+train,test = time_split(filtered,horizon)
 actual = test["hhs_in_care"]
 
-# ======================================================
-# MODEL EXECUTION
-# ======================================================
-
-if model_choice == "Naive":
-    preds = naive_forecast(train, horizon)
-    conf = None
-
-elif model_choice == "SARIMA":
-    preds, conf = sarima_forecast(train, horizon)
-
+# =========================
+# MODEL RUN
+# =========================
+if model_choice=="SARIMA":
+    preds,conf = sarima_forecast(train,horizon)
+elif model_choice=="Random Forest":
+    preds = ml_forecast(train,test)
+    conf=None
 else:
-    preds = ml_forecast(train, test)
-    conf = None
+    preds = naive_forecast(train,horizon)
+    conf=None
 
-metrics = evaluate_forecast(actual, preds)
+metrics = evaluate_forecast(actual,preds)
 
-# ======================================================
-# KPI DISPLAY
-# ======================================================
+# =========================
+# KPI ROW
+# =========================
+c1,c2,c3 = st.columns(3)
+c1.metric("MAE",metrics["MAE"])
+c2.metric("RMSE",metrics["RMSE"])
+c3.metric("MAPE",metrics["MAPE (%)"])
 
-c1, c2, c3 = st.columns(3)
-c1.metric("MAE", metrics["MAE"])
-c2.metric("RMSE", metrics["RMSE"])
-c3.metric("MAPE (%)", metrics["MAPE (%)"])
+kpi = calculate_kpis(filtered)
 
-kpis = calculate_kpis(filtered)
+c4,c5,c6,c7 = st.columns(4)
+c4.metric("Avg Intake",kpi["Avg Daily Intake"])
+c5.metric("Avg Discharge",kpi["Avg Daily Discharge"])
+c6.metric("Pressure Days",kpi["Pressure Days"])
+c7.metric("Capacity Breach",kpi["Capacity Breach Days"])
 
-c4, c5, c6, c7 = st.columns(4)
-c4.metric("Avg Daily Intake", kpis["Avg Daily Intake"])
-c5.metric("Avg Daily Discharge", kpis["Avg Daily Discharge"])
-c6.metric("Pressure Days", kpis["Pressure Days"])
-c7.metric("Capacity Breach Days", kpis["Capacity Breach Days"])
-
-# ======================================================
+# =========================
 # FORECAST CHART
-# ======================================================
-
-st.subheader("Forecast vs Actual")
+# =========================
+st.subheader("Future Care Load Forecast")
 
 fig = go.Figure()
-fig.add_trace(go.Scatter(x=actual.index, y=actual, mode="lines", name="Actual"))
-fig.add_trace(go.Scatter(x=actual.index, y=preds, mode="lines", name="Forecast"))
+fig.add_trace(go.Scatter(x=actual.index,y=actual,name="Actual"))
+fig.add_trace(go.Scatter(x=actual.index,y=preds,name="Forecast"))
 
 if conf is not None:
-    fig.add_trace(go.Scatter(
-        x=actual.index,
-        y=conf.iloc[:, 0],
-        line=dict(width=0),
-        showlegend=False
-    ))
-    fig.add_trace(go.Scatter(
-        x=actual.index,
-        y=conf.iloc[:, 1],
-        fill="tonexty",
-        opacity=0.3,
-        name="Confidence Interval"
-    ))
+    fig.add_trace(go.Scatter(x=actual.index,y=conf.iloc[:,0],line=dict(width=0)))
+    fig.add_trace(go.Scatter(x=actual.index,y=conf.iloc[:,1],
+                             fill='tonexty',opacity=0.3,name="Confidence"))
 
-st.plotly_chart(fig, width="stretch")
+st.plotly_chart(fig,width="stretch")
 
-# ======================================================
+# =========================
+# INTAKE VS DISCHARGE
+# =========================
+st.subheader("Intake vs Discharge")
+
+flow = px.line(filtered,y=["transferred_to_hhs","discharged"])
+st.plotly_chart(flow,width="stretch")
+
+# =========================
+# PRESSURE
+# =========================
+st.subheader("Net Pressure")
+press = px.line(filtered,y="net_pressure")
+st.plotly_chart(press,width="stretch")
+
+# =========================
+# CAPACITY
+# =========================
+st.subheader("Capacity Risk")
+pie = px.pie(filtered,names="capacity_status")
+st.plotly_chart(pie,use_container_width=True)
+
+st.dataframe(filtered.tail(20),width="stretch")
+
+# =========================
 # MODEL COMPARISON
-# ======================================================
-
+# =========================
 st.subheader("Model Comparison")
 
-results = []
+rows=[]
 
-for m in ["Naive", "SARIMA", "Random Forest"]:
+for m in ["SARIMA","Random Forest","Naive"]:
 
-    if m == "Naive":
-        p = naive_forecast(train, horizon)
-    elif m == "SARIMA":
-        p, _ = sarima_forecast(train, horizon)
+    if m=="SARIMA":
+        p,_=sarima_forecast(train,horizon)
+    elif m=="Random Forest":
+        p=ml_forecast(train,test)
     else:
-        p = ml_forecast(train, test)
+        p=naive_forecast(train,horizon)
 
-    r = evaluate_forecast(actual, p)
-    results.append([m, r["MAE"], r["RMSE"], r["MAPE (%)"]])
+    r=evaluate_forecast(actual,p)
+    rows.append([m,r["MAE"],r["RMSE"],r["MAPE (%)"]])
 
-comparison = pd.DataFrame(results, columns=["Model", "MAE", "RMSE", "MAPE"])
-st.dataframe(comparison, width="stretch")
+st.dataframe(pd.DataFrame(rows,
+columns=["Model","MAE","RMSE","MAPE"]),width="stretch")
