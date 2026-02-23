@@ -49,19 +49,22 @@ def load_data(file_path):
 # =========================
 def create_forecasting_features(df):
 
+    # lag features
     df["lag_1"] = df["hhs_in_care"].shift(1)
     df["lag_7"] = df["hhs_in_care"].shift(7)
     df["lag_14"] = df["hhs_in_care"].shift(14)
 
-    df["roll_mean_7"] = df["hhs_in_care"].shift(1).rolling(7).mean()
-    df["roll_mean_14"] = df["hhs_in_care"].shift(1).rolling(14).mean()
+    # rolling
+    df["roll_mean_7"] = df["hhs_in_care"].rolling(7).mean()
+    df["roll_mean_14"] = df["hhs_in_care"].rolling(14).mean()
+    df["roll_std_7"] = df["hhs_in_care"].rolling(7).std()
 
-    df["transfer_lag1"] = df["transferred_to_hhs"].shift(1)
-    df["discharge_lag1"] = df["discharged"].shift(1)
-
+    # VERY IMPORTANT
     df["net_pressure"] = df["transferred_to_hhs"] - df["discharged"]
 
+    df = df.replace([np.inf, -np.inf], np.nan)
     df = df.dropna()
+
     return df
 
 
@@ -146,9 +149,22 @@ def add_capacity_risk(df):
 
 def calculate_kpis(df):
 
+    # safety check
+    if "net_pressure" not in df.columns:
+        df["net_pressure"] = df["transferred_to_hhs"] - df["discharged"]
+
+    if "capacity_status" not in df.columns:
+        df = add_capacity_risk(df)
+
+    avg_intake = df["transferred_to_hhs"].mean()
+    avg_discharge = df["discharged"].mean()
+
+    pressure_days = (df["net_pressure"] > 0).sum()
+    breach_days = (df["capacity_status"] == "Critical").sum()
+
     return {
-        "Avg Daily Intake": round(df["transferred_to_hhs"].mean(),2),
-        "Avg Daily Discharge": round(df["discharged"].mean(),2),
-        "Pressure Days": int((df["net_pressure"]>0).sum()),
-        "Capacity Breach Days": int((df["capacity_status"]=="Critical").sum())
+        "Avg Daily Intake": round(avg_intake, 2),
+        "Avg Daily Discharge": round(avg_discharge, 2),
+        "Pressure Days": int(pressure_days),
+        "Capacity Breach Days": int(breach_days)
     }
