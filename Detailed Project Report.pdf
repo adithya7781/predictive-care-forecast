@@ -1,0 +1,155 @@
+**Title:** Predictive Forecasting of Care Load & Placement Demand
+
+## 1. Introduction
+
+Government healthcare and child-welfare systems operate in a high-uncertainty environment where sudden changes in migration trends, policy enforcement, and humanitarian conditions can significantly impact the number of children requiring federal care.
+Traditional descriptive analytics only explains historical patterns. However, decision-makers require predictive intelligence to anticipate future care demand, discharge capacity, and system pressure.
+
+This project develops a predictive forecasting dashboard to estimate future care load, discharge demand, and capacity risk using time-series and machine-learning models. The system enables proactive planning and resource allocation for healthcare administrators.
+
+---
+
+## 2. Dataset Description
+
+The dataset contains daily operational metrics of children in federal care.
+
+**Columns used:**
+
+* Date – Reporting date
+* Children apprehended and placed in CBP custody – Daily intake volume
+* Children in CBP custody – Active CBP care load
+* Children transferred out of CBP custody – Flow into HHS system
+* Children in HHS Care – Active care load (target variable)
+* Children discharged from HHS Care – Successful placements
+
+The dataset is time-series based and recorded daily, enabling forecasting of future trends.
+
+---
+
+## 3. Data Preparation
+
+Data cleaning and preprocessing steps included:
+
+* Converted date column to datetime index
+* Sorted values chronologically
+* Removed duplicate rows
+* Cleaned numeric columns by removing commas and special characters
+* Converted all metrics to numeric format
+* Ensured daily continuity using time-series frequency alignment
+* Handled missing values using interpolation and forward/backward fill
+
+This ensured the dataset was structured and suitable for forecasting models.
+
+---
+
+## 4. Exploratory Data Analysis (EDA)
+
+EDA was performed to understand patterns and relationships:
+
+* Trend analysis of care load over time
+* Intake vs discharge comparison
+* Seasonal weekly patterns
+* Net pressure indicator (intake − discharge)
+* Capacity risk distribution
+
+Key findings:
+
+* Care load follows stable but trend-driven patterns
+* Intake and discharge directly impact future care load
+* System pressure increases when intake exceeds discharge
+* No critical capacity breach observed in recent period
+
+---
+
+## 5. Analytical Approach
+
+### Feature Engineering
+
+To improve forecasting accuracy, the following predictive features were created:
+
+* Lag features (1-day, 7-day, 14-day)
+* Rolling averages (7-day and 14-day)
+* Rolling standard deviation
+* Net pressure indicator
+* Calendar features (day of week, month)
+
+These features capture trend, seasonality, and system pressure.
+
+### Model Development
+
+Multiple forecasting models were implemented:
+
+**Baseline models:**
+
+* Naive forecast
+
+**Statistical model:**
+
+* SARIMA (Seasonal ARIMA)
+
+**Machine learning model:**
+
+* Random Forest Regressor
+
+Models were evaluated using time-based train-test split.
+
+### Evaluation Metrics
+
+* MAE (Mean Absolute Error)
+* RMSE (Root Mean Square Error)
+* MAPE (Mean Absolute Percentage Error)
+
+---
+
+## 6. Dashboard Implementation
+
+An interactive Streamlit dashboard was developed with:
+
+* Forecast horizon selection
+* Model selection
+* KPI display (MAE, RMSE, MAPE)
+* Intake vs discharge trends
+* Net pressure indicator
+* Capacity risk monitoring
+* Model comparison table
+
+Plotly visualizations were used for dynamic charts.
+
+---
+
+## 7. Results & Insights
+
+### Model Performance
+
+Random Forest achieved highest accuracy:
+
+* MAPE below 1%
+* Stable long-range forecasting
+* Captured trend and seasonal patterns effectively
+
+SARIMA also performed well but slightly less accurate.
+
+### Operational Insights
+
+* Care load trends are predictable using historical patterns
+* Intake and discharge strongly influence future load
+* Early forecasting enables proactive planning
+* Machine learning models outperform baseline methods
+
+---
+
+## 8. Business Recommendations
+
+* Use predictive dashboard for weekly planning
+* Scale shelters and staff based on forecast trends
+* Monitor net pressure indicator daily
+* Increase discharge processing during surge periods
+* Integrate forecasting into decision-making workflow
+
+---
+
+## 9. Conclusion
+
+This project successfully transforms historical operational data into predictive intelligence. By combining time-series forecasting and machine learning with an interactive dashboard, healthcare planners can anticipate demand, reduce overcrowding risk, and improve resource allocation.
+
+The system demonstrates how data-driven forecasting can enhance government healthcare planning and operational efficiency.
