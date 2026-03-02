@@ -42,3 +42,11 @@ requirements.txt – Dependencies
 **Use Case:**
 
 Helps healthcare and government agencies forecast demand and plan resources proactively using predictive analytics.
+
+**Project Link:**
+
+https://predictive-care-forecast.streamlit.app/
+
+**Project Video Link:**
+
+https://drive.google.com/file/d/1-qjhEotbJeaYRHCK0TgO5j1ENYWp0XhO/view?usp=sharing
